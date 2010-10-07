@@ -1,0 +1,118 @@
+;;; -*- coding: utf-8 mode: lisp -*-
+
+;;; load program
+
+(load "/home/wiz/ngnet-online-em/ngnet-online-em.lisp")
+(asdf:oos 'asdf:load-op :cl-store)
+
+;;; define input function
+
+;;; define data stream
+
+(defparameter x_in.dat1.schaal
+  (cl-store:restore "/home/wiz/research/NGnet/oibem/data/x_in.2dim.data1"))
+(defparameter  x_out.dat1.schaal
+  (cl-store:restore "/home/wiz/research/NGnet/oibem/data/x_out.2dim.data1"))
+
+;;; example of general data stream
+(defun schaal-function (x1 x2)
+  (max (exp (* -10d0 x1 x1))
+       (exp (* -50d0 x2 x2))
+       (* 1.25d0 (exp (* -5d0 (+ (* x1 x1)
+				 (* x2 x2)))))))
+
+(plot-lst-2dim #'schaal-function (seq -1d0 1d0 :by 0.005)  (seq -1d0 1d0 :by 0.005)
+	       :xlabel "x_1" :ylabel "x_2" :surface nil :reset nil :title "Schaal function")
+
+
+(defparameter x_in.dat.schaal
+  (n-times-collect 10000
+    (make-vector 2 :initial-contents (list (random-uniform -1d0 1d0)
+					   (random-uniform -1d0 1d0)))))
+(defparameter x_out.dat.schaal
+  (mapcar (lambda (x_in)
+	    (schaal-function (aref x_in 0 0) (aref x_in 1 0)))
+	  x_in.dat.schaal))
+
+(defparameter schaal-data-stream
+  (make-instance 'data-stream-general-source
+		 :input-generator
+		 (lambda ()
+		   (make-vector 2
+				   :initial-contents
+				   (list (random-uniform -1d0 1d0)
+					 (random-uniform -1d0 1d0))))
+		 :input-output-function
+		 (lambda (x_in)
+		   (schaal-function (aref x_in 0 0) (aref x_in 1 0)))))
+
+;;; initialize session
+;; unit=100, input-dimension=2, output-dimension=1
+(defparameter session-schaal
+  (make-initialized-session 300 2 1 :lambda-factor 0.999d0 :alpha 0.1d0 :LL 0d0))
+
+(defparameter session-schaal2 #=(oem-1step (car x_in.dat.schaal) (car x_out.dat.schaal) session-schaal))
+(defparameter session-schaal3 #=(oem-1step (cadr x_in.dat.schaal) (cadr x_out.dat.schaal) session-schaal2))
+
+(oem-data-list x_in.dat.schaal x_out.dat.schaal session-schaal)
+(oem-data-stream schaal-data-stream session-schaal)
+
+;; Schaal function の予測線を表示
+(defun plot-schaal-prediction (session xrange yrange)
+  (plot-lst-2dim
+   (lambda (x1 x2)
+     (handler-case
+	 (prediction (make-vector 2 :initial-contents (list x1 x2)) session)
+       (FLOATING-POINT-INVALID-OPERATION (c) (declare (ignore c)) -1)
+       (FLOATING-POINT-OVERFLOW (c) (declare (ignore c)) -1)))
+   xrange yrange
+   :title "predictive function" :xlabel "x_1" :ylabel "x_2" :surface nil))
+
+(plot-schaal-prediction learned-session-schaal (seq -1d0 1d0 :by 0.05)  (seq -1d0 1d0 :by 0.05))
+(plot-schaal-prediction *last-session* (seq -1d0 1d0 :by 0.05)  (seq -1d0 1d0 :by 0.05))
+
+(oem-data-stream schaal-data-stream *last-session*)
+
+(oem-1step #2A((0.07133174845460077d0) (-0.6295889723009922d0)) 0.9503906357528917d0 *last-session*)
+
+#2A((-0.5606784638595993d0) (-0.29871865646388346d0))
+
+#2A((4.3632619791857775d-4 1.130389569788392d-4)
+    (1.130389569788392d-4 1.0910846407306281d-4))
+
+
+
+;;; test1
+(n-times 100
+  (progn
+    (setf session-schaal-random (session-initializer 10 2 1))
+    (clear-data-stream! data-schaal1)
+    (clear-data-stream! data-schaal2)
+    (let ((trained-session (ibem schaal-data-stream session-schaal-random)))
+      (output-result data-schaal1 data-schaal2 trained-session)
+      (print (session-global-count trained-session))
+    ;; Schaal function の予測線を表示
+      (plot-lst-2dim
+     (lambda (x1 x2)
+       (handler-case
+	   (prediction (make-vector 2 :initial-contents (list x1 x2)) trained-session)
+	 (FLOATING-POINT-INVALID-OPERATION (c) 0)))
+     (seq -1d0 1d0 :by 0.05)  (seq -1d0 1d0 :by 0.05)
+     :title "predictive function" :xlabel "x_1" :ylabel "x_2" :surface nil)
+      ))
+  )
+
+
+;; 不定期に数値計算でエラー
+;; arithmetic error FLOATING-POINT-INVALID-OPERATION signalled
+;;    [Condition of type FLOATING-POINT-INVALID-OPERATION]
+
+
+;; Schaal function の予測線を表示
+(plot-lst-2dim
+ (lambda (x1 x2)
+   (handler-case
+       (prediction (make-vector 2 :initial-contents (list x1 x2)) learned-session)
+     (FLOATING-POINT-INVALID-OPERATION (c) 0)))
+ (seq -1d0 1d0 :by 0.05)  (seq -1d0 1d0 :by 0.05)
+ :title "predictive function" :xlabel "x_1" :ylabel "x_2" :surface nil)
